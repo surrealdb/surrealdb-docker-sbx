@@ -1,0 +1,62 @@
+schemaVersion: "2"
+kind: sandbox
+name: surrealdb
+version: "0.1.0"
+displayName: SurrealDB
+description: "An agent-less microVM with a running SurrealDB instance and the SurrealDB CLI."
+sourceURL: https://github.com/surrealdb-dev/surrealdb-docker-sbx
+licenses:
+  - Apache-2.0
+
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+  entrypoint: [bash]
+  command:
+    default: ["-l"]
+    interactive: ["-l"]
+
+# The complete outbound contract: the install script and the binaries it fetches.
+permissions:
+  network:
+    allow:
+      - install.surrealdb.com
+      - download.surrealdb.com
+
+environment:
+  variables:
+    # Read by `surreal start` for the listen address. Bound to all interfaces
+    # so the published port reaches it; the microVM is the isolation boundary.
+    SURREAL_BIND: "0.0.0.0:8000"
+    # Read by both `surreal start` (to seed the root user) and by client
+    # commands such as `surreal sql`, so the CLI needs no credential flags.
+    SURREAL_USER: "root"
+    SURREAL_PASS: "root"
+    # Consumed by surrealdb-wait.sh and by anything you write against the DB.
+    SURREAL_ENDPOINT: "http://127.0.0.1:8000"
+    # Friendly storage switch: memory | rocksdb. See surrealdb-start.sh.
+    SURREAL_STORAGE: "memory"
+
+setup:
+  install:
+    - command: "curl -fsSL https://install.surrealdb.com | sh"
+      description: "Install the SurrealDB server and CLI"
+  # Invoked via `bash` rather than executed directly, so the kit does not depend
+  # on the executable bit surviving the copy into the sandbox.
+  startup:
+    - command: ["bash", "/home/agent/.local/bin/surrealdb-start.sh"]
+      user: "1000"
+      background: true
+      description: "Start SurrealDB"
+    - command: ["bash", "/home/agent/.local/bin/surrealdb-wait.sh"]
+      user: "1000"
+      description: "Wait until SurrealDB accepts connections"
+
+# Persists data when SURREAL_STORAGE=rocksdb; unused under the memory default.
+volumes:
+  - path: /home/agent/.surrealdb
+    size: 5g
+
+ports:
+  - container: 8000
+    protocol: tcp
+    name: surrealdb

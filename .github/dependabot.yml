@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # GitHub Actions — keeps SHA-pinned `uses:` lines fresh as upstream updates.
+  # This repo ships no package manifests, so this is the only ecosystem.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 0 # security updates only
+    groups:
+      actions:
+        applies-to: security-updates
+        patterns: ["*"]

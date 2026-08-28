@@ -1,0 +1,15 @@
+# Owners must be GitHub teams (e.g. @surrealdb/<team>), not individuals.
+# Last matching rule wins; broad defaults first, tightened by path below.
+
+# Default owners for the repository
+* @surrealdb/surrealdb
+
+# Configuration for CI
+/.github/ @surrealdb/ci
+
+# The kit's network allow-list, install step and credentials all live in
+# spec.yaml, and the startup scripts run inside the sandbox.
+spec.yaml @surrealdb/security
+/files/ @surrealdb/security
+.github/CODEOWNERS @surrealdb/security
+SECURITY.md @surrealdb/security
