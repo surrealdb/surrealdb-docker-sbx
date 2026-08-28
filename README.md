@@ -127,6 +127,11 @@ sbx kit inspect .         # show what the kit resolves to
 CI runs `shellcheck` over the sandbox scripts and asserts the spec's invariants — including that
 the network allow-list has not silently grown.
 
+## Contributing
+
+Contributions are welcome. Please read our [Code of Conduct](CODE_OF_CONDUCT.md) first, and
+report security issues privately per [SECURITY.md](SECURITY.md) rather than opening an issue.
+
 ## License
 
 [Apache 2.0](LICENSE)
