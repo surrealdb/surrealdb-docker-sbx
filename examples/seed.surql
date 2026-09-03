@@ -5,6 +5,10 @@
 -- Shows off the things SurrealDB does that a relational database cannot:
 -- record links, graph edges, and nested data on the record itself.
 
+-- Required first statement for `surreal import` on SurrealDB 2.x/3.x: it
+-- disables events, live queries, and per-field processing for a fast load.
+OPTION IMPORT;
+
 DEFINE TABLE person SCHEMAFULL;
 DEFINE FIELD name    ON person TYPE string;
 DEFINE FIELD email   ON person TYPE string ASSERT string::is_email($value);

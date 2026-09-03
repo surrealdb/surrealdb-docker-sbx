@@ -7,7 +7,7 @@ No local install, no `docker run` incantation, no port juggling. One command and
 prompt in front of a live database that you can throw away when you are done.
 
 ```bash
-sbx run shell --kit github.com/surrealdb-dev/surrealdb-docker-sbx
+sbx run git+https://github.com/surrealdb-dev/surrealdb-docker-sbx.git
 ```
 
 ```
@@ -33,20 +33,20 @@ default — this kit opens exactly two domains, and nothing else.
 Run straight from this repository:
 
 ```bash
-sbx run shell --kit github.com/surrealdb-dev/surrealdb-docker-sbx
+sbx run git+https://github.com/surrealdb-dev/surrealdb-docker-sbx.git
 ```
 
 Or from a local clone, which is what you want if you are changing the kit:
 
 ```bash
 git clone https://github.com/surrealdb-dev/surrealdb-docker-sbx
-sbx run shell --kit ./surrealdb-docker-sbx
+sbx run ./surrealdb-docker-sbx
 ```
 
 Mount a project directory into the sandbox by passing it as a positional argument:
 
 ```bash
-sbx run shell --kit ./surrealdb-docker-sbx ~/my-project
+sbx run ./surrealdb-docker-sbx ~/my-project
 ```
 
 ### Talking to the database
@@ -64,7 +64,7 @@ The server listens on port 8000 inside the sandbox. To reach it from the host �
 application, or a GUI such as Surrealist — publish the port:
 
 ```bash
-sbx run shell --kit . -p 8000:8000
+sbx run ./ -p 8000:8000
 ```
 
 `sbx ports` lists what is currently published.
@@ -90,7 +90,7 @@ sandbox. Everything is gone when the sandbox stops.
 For data that survives a restart, switch to RocksDB:
 
 ```bash
-sbx run shell --kit . -e SURREAL_STORAGE=rocksdb
+sbx run ./ -e SURREAL_STORAGE=rocksdb
 ```
 
 That writes to `~/.surrealdb/data` inside the sandbox, which the kit declares as a volume, so it
