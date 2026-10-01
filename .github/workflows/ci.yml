@@ -1,9 +1,12 @@
-# Validates the kit on every pull request: the spec parses and still holds its
-# documented contract, and the scripts that run inside the sandbox are clean.
+# Validates the kits on every pull request: the descriptors still hold their
+# documented contract, the scripts that run inside the sandbox are clean, and
+# every kit builds and conforms to the v3 kit spec, and the SurrealDB workload
+# serves queries.
 #
-# `sbx kit validate` is deliberately not run here — it requires a Docker login,
-# which CI has no credentials for. These are the checks that can be made
-# without authenticating.
+# Building a v3 kit is the validation: the sandbox-kit frontend checks the
+# descriptor before it builds anything, and none of it needs a Docker login.
+# What does — booting real sandboxes with sbx — is scripts/smoke.sh and
+# scripts/smoke-agent-memory.sh, run locally.
 
 name: CI
 
@@ -15,9 +18,14 @@ on:
 permissions:
   contents: read
 
+env:
+  # kit-tck, the spec's conformance suite, pinned to a release archive.
+  KIT_TCK_VERSION: 3.0.0-m.7
+  KIT_TCK_SHA256: 756944bb7c909b21f40f60194f4c463c66d1808702ea4ab6da97beefc0ca0918
+
 jobs:
   validate:
-    name: Validate kit
+    name: Validate kits
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,10 +39,78 @@ jobs:
 
       # shellcheck ships preinstalled on ubuntu-latest runners.
       - name: Lint shell scripts
-        run: shellcheck files/home/.local/bin/*.sh scripts/*.sh
+        run: shellcheck surrealdb/bin/*.sh surrealdb-mixin/bin/*.sh agent-memory/bin/*.sh scripts/*.sh scripts/agent-memory/*.sh
 
-      - name: Install spec check dependencies
+      - name: Install kit check dependencies
         run: pip install --quiet pyyaml
 
-      - name: Validate spec.yaml
-        run: python3 .github/scripts/check-spec.py
+      - name: Check kit invariants
+        run: python3 .github/scripts/check-kit.py
+
+  build:
+    name: Build ${{ matrix.kit }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        kit: [surrealdb, surrealdb-mixin, agent-memory]
+    env:
+      KIT: ${{ matrix.kit }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # A docker-container builder, which can export the OCI layout kit-tck reads.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the kit
+        run: >-
+          docker buildx build "$KIT" -f "$KIT/$KIT.yaml" -t "$KIT:ci"
+          --output "type=oci,dest=$RUNNER_TEMP/layout,tar=false"
+
+      - name: Install kit-tck
+        run: |
+          archive="kit-tck_${KIT_TCK_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLO "https://github.com/docker/sandbox-kit-spec/releases/download/v${KIT_TCK_VERSION}/$archive"
+          echo "$KIT_TCK_SHA256  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" kit-tck
+
+      - name: Check conformance
+        run: '"$RUNNER_TEMP/kit-tck" validate --verbose --layout "$RUNNER_TEMP/layout" ci'
+
+      # An overlay lands on a base it does not know, so every file it ships
+      # must belong to root or to the agent (uid 1000), never to whatever uid
+      # packed an upstream tarball.
+      - name: Audit overlay ownership
+        if: matrix.kit != 'surrealdb'
+        run: |
+          owners="$(for blob in "$RUNNER_TEMP"/layout/blobs/sha256/*; do
+            tar --numeric-owner -tvf "$blob" 2>/dev/null || true
+          done | awk '{print ($2 ~ /\//) ? $2 : $3"/"$4}' | sort | uniq -c)"
+          echo "$owners"
+          if grep -v -E ' (0/0|1000/1000)$' <<< "$owners"; then
+            echo "::error::the overlay ships files owned by uids other than 0 and 1000"
+            exit 1
+          fi
+
+      # The workload runs as an ordinary image too, which is enough to prove
+      # the scripts and the pinned CLI serve a write and a read without sbx.
+      - name: Smoke test the workload image
+        if: matrix.kit == 'surrealdb'
+        run: |
+          docker buildx build "$KIT" -f "$KIT/$KIT.yaml" -t "$KIT:ci" --load
+          docker run --rm "$KIT:ci" -c '
+            set -euo pipefail
+            surrealdb-start.sh > /tmp/surreal.log 2>&1 &
+            surrealdb-wait.sh
+            surreal sql --hide-welcome --ns ci --db ci --json <<< "CREATE person:tobie SET name = \"Tobie\";"
+            out="$(surreal sql --hide-welcome --ns ci --db ci --json <<< "SELECT name FROM person:tobie;")"
+            echo "$out"
+            grep -q Tobie <<< "$out"
+          '

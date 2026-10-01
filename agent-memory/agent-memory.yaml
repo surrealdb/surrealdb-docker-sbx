@@ -1,0 +1,101 @@
+# syntax=docker/sandbox-kit:3
+# SurrealDB Agent Memory for a coding agent's sandbox. The memory lives in
+# your Agent Memory context, not in the microVM, so it outlives every sandbox
+# the agent runs in: what one session remembers, the next can recall.
+#
+# A mixin: compose it onto a v3 agent workload such as docker/sbx-kit-claude
+# or docker/sbx-kit-codex. It needs nothing from the surrealdb kits in this
+# repository — the database behind the memory is the context's own.
+schemaVersion: "3"
+kind: mixin
+displayName: SurrealDB Agent Memory
+description: >-
+  Persistent memory for the agent, backed by a SurrealDB Agent Memory
+  context: the agent-memory CLI, the context's MCP server and automatic
+  recall and remember hooks in Claude Code and Codex, and an API key that
+  never enters the sandbox.
+sourceUrl: https://github.com/surrealdb-dev/surrealdb-docker-sbx
+# The kit's own sources and the agent-memory CLI it ships are both Apache-2.0.
+licenses: [Apache-2.0]
+
+version: "${{ kit.args.version }}"
+
+args:
+  version:
+    default: "0.3.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: agent-memory CLI release to install
+    buildArg: AGENT_MEMORY_VERSION
+  # The context host and id come from SurrealDB Studio (Contexts → API keys).
+  # Both are per user, so the caller supplies them when the sandbox is created.
+  host:
+    required: true
+    pattern: '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$'
+    description: Context host, without https:// — for example abc123.spectron.cloud
+  contextId:
+    required: true
+    pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
+    description: Context id the CLI addresses its REST calls to
+    env: SPECTRON_CONTEXT_ID
+  # Exported, so the agents' hook processes read the same switch the setup
+  # script does: `-e AGENT_MEMORY_HOOKS=off` works too.
+  hooks:
+    default: "on"
+    enum: ["on", "off"]
+    description: >-
+      Recall memories into the agent's context on every prompt and remember
+      every finished exchange, in Claude Code and Codex
+    env: AGENT_MEMORY_HOOKS
+
+provides: ["agent-memory@${{ kit.args.version }}"]
+
+# No requires: the CLI is a static binary and runs on any base. Claude Code
+# and Codex are wired up when the workload has them, skipped when it does not.
+
+capabilities:
+  # The context host, and nothing else. The CLI is baked into the overlay, so
+  # there is no install phase to grant, and `agent-memory upgrade` cannot
+  # reach download.surrealdb.com: the pinned release is the one that runs.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow: ["${{ kit.args.host }}"]
+
+  # The context API key. The sandbox sees a placeholder in SPECTRON_API_KEY;
+  # the proxy presents the real key to the context host, and only to it.
+  - type: com.docker.sandbox/credential@1
+    description: SurrealDB Agent Memory context API key
+    config:
+      service: agent-memory
+      phase: runtime
+      apiKey:
+        name: SPECTRON_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: "${{ kit.args.host }}", header: Authorization, format: "Bearer %s"}
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      # The CLI reads its URL and context from this profile when the
+      # SPECTRON_* variables are unset; the key stays in the environment.
+      files:
+        - path: /home/agent/.config/spectron/config.toml
+          mode: "0600"
+          content: |
+            [profile.default]
+            url = "https://${{ kit.args.host }}"
+            context_id = "${{ kit.args.contextId }}"
+          description: Point the agent-memory CLI at the context
+      # Every boot, so the MCP server and the memory hooks survive the
+      # workload rewriting its own configuration. Hook environments are
+      # deny-by-default: the script reads the placeholder key and the hooks
+      # switch, and nothing else.
+      startup:
+        - command: [/usr/local/bin/agent-memory-setup.sh, "${{ kit.args.host }}"]
+          user: "1000"
+          env: [SPECTRON_API_KEY, AGENT_MEMORY_HOOKS]
+          description: Connect Claude Code and Codex to the context
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./agent-memory-context.md

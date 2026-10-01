@@ -1,6 +1,10 @@
--- Sample schema and data for the SurrealDB sandbox.
+-- Sample schema and data for the SurrealDB sandbox. Load it with:
 --
---   surreal import --ns demo --db demo examples/seed.surql
+--   surreal sql --ns demo --db demo < examples/seed.surql
+--
+-- `surreal import` loads it too, thanks to the OPTION IMPORT below, but import
+-- mode skips field processing: the DEFAULT and ASSERT clauses would not apply.
+-- `surreal sql` ignores OPTION IMPORT and applies them.
 --
 -- Shows off the things SurrealDB does that a relational database cannot:
 -- record links, graph edges, and nested data on the record itself.
