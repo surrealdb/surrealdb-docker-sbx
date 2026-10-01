@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Block until SurrealDB accepts connections, so the shell never hands over to a
-# user in front of a database that is not up yet.
+# user in front of a database that is not up yet. Run by the kit's lifecycle@1
+# startup hook, in the foreground, right after surrealdb-start.sh.
+#
+# Kept byte-identical in surrealdb/bin/ and surrealdb-mixin/bin/ (CI enforces
+# it): a kit's build context is its own directory, so the two kits cannot
+# share one copy.
 set -euo pipefail
 
 endpoint="${SURREAL_ENDPOINT:-http://127.0.0.1:8000}"

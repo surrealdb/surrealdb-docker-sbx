@@ -14,16 +14,33 @@ details on how the vulnerability can be exploited.
 
 ## Scope notes for this repository
 
-This repository ships a [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/)
-kit. Two properties of the kit are security-relevant and changes to them
-warrant extra scrutiny in review:
+This repository ships three [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/)
+kits, `surrealdb`, `surrealdb-mixin` and `agent-memory`, each a v3 descriptor
+(`<kit>/<kit>.yaml`) and the recipe that builds its content
+(`<kit>/<kit>.dockerfile`). These properties of the kits are security-relevant
+and changes to them warrant extra scrutiny in review:
 
-- **The network allow-list** in `spec.yaml` under `permissions.network.allow`
-  is the sandbox's *complete* outbound contract. Adding a domain widens what
-  the sandbox can reach.
-- **The install step** pipes `https://install.surrealdb.com` into a shell.
-  Changing that URL, or the commands under `setup.install`, changes what code
-  runs as root at sandbox creation.
+- **The network contract.** Neither SurrealDB descriptor declares a
+  `com.docker.sandbox/network-policy` capability: those sandboxes request no
+  outbound access at all. `agent-memory` allows exactly one host, at runtime:
+  the context host the user supplies as `args.host`. Adding a policy, an
+  allow entry, or an install-phase grant widens what the sandbox can reach.
+- **The API key.** `agent-memory` declares one `credential@1`, service
+  `agent-memory`, proxy-managed: the sandbox holds a placeholder in
+  `SPECTRON_API_KEY`, and the proxy presents the real key only on requests
+  to the context host. Making it not proxy-managed, or adding an inject
+  domain, exposes the key or sends it somewhere new.
+- **What `agent-memory` sends.** Unless created with `hooks=off`, its hooks
+  send every prompt and agent reply in Claude Code and Codex to the context
+  host, and inject recalled memories into the agent's context. They run
+  `agent-memory/bin/agent-memory-hook.sh`, registered in the agents' user
+  configuration; Codex's own trust review of those hooks is left in place.
+- **The install step.** Each recipe downloads a pinned release from
+  `https://download.surrealdb.com` at build time and verifies it — by version,
+  and for the `agent-memory` CLI also by its published checksum. Changing
+  that URL, the recipes, or `args.version` changes the binary that ships in
+  the kit. The startup hooks run the scripts in each kit's `bin/` directory
+  on every boot; the SurrealDB kits also re-own their volume as root.
 
 The sandbox deliberately starts SurrealDB with the well-known root credentials
 `root`/`root`, reachable only from inside the microVM and from `127.0.0.1` on

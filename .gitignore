@@ -3,3 +3,6 @@
 
 # Local sandbox scratch
 *.zip
+
+# The surreal sql shell's history, written to its working directory
+history.txt

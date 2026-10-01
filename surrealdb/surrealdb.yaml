@@ -1,0 +1,80 @@
+# syntax=docker/sandbox-kit:3
+# The SurrealDB workload: a shell sandbox with SurrealDB already running and
+# the SurrealDB CLI on PATH. To add SurrealDB to an agent's sandbox instead,
+# use the sibling surrealdb-mixin kit — the two provide the same thing and
+# refuse to compose with each other.
+schemaVersion: "3"
+kind: workload
+displayName: SurrealDB
+description: "An agent-less microVM with a running SurrealDB instance and the SurrealDB CLI."
+sourceUrl: https://github.com/surrealdb-dev/surrealdb-docker-sbx
+# The kit's own sources are Apache-2.0; the surreal binary it ships is BUSL-1.1.
+licenses: [Apache-2.0, BUSL-1.1]
+
+# MIGRATION NOTE: v2 carried its own release number (version: "0.1.0"). One
+# arg now drives the binary the recipe installs, the provide below and the
+# published version, so none of them can drift from the others.
+version: "${{ kit.args.version }}"
+
+args:
+  version:
+    default: "3.3.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: SurrealDB release to install; keep surrealdb-mixin on the same one
+    buildArg: SURREAL_VERSION
+
+provides: ["surrealdb@${{ kit.args.version }}"]
+
+# The runtime contract — the bash login shell, the agent user and the
+# SURREAL_* environment — lives in surrealdb.dockerfile.
+
+capabilities:
+  # The host launches the shell as the sandbox's agent, under the identity the
+  # image config declares.
+  - type: com.docker.sandbox/sbx@1
+
+  # MIGRATION NOTE: no network-policy. v2 allowed install.surrealdb.com and
+  # download.surrealdb.com so a create-time hook could fetch the binary; the
+  # recipe now installs a pinned release at build, so the sandbox needs no
+  # outbound access at all. Adding a policy here widens the kit's contract.
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      # Hook environments are deny-by-default: each hook lists every variable
+      # its script reads, and only those reach it.
+      startup:
+        # A fresh volume mounts owned by root; hand its root to the agent so
+        # rocksdb can create its data directory there. Idempotent.
+        - command: [chown, "1000:1000", /home/agent/.surrealdb]
+          user: "0"
+          description: Give the agent the SurrealDB volume
+        - command: [/usr/local/bin/surrealdb-start.sh]
+          user: "1000"
+          background: true
+          env:
+            - SURREAL_STORAGE
+            - SURREAL_DATA_DIR
+            - SURREAL_PATH
+            - SURREAL_BIND
+            - SURREAL_USER
+            - SURREAL_PASS
+            - SURREAL_ENDPOINT
+          description: Start SurrealDB
+        - command: [/usr/local/bin/surrealdb-wait.sh]
+          user: "1000"
+          env: [SURREAL_ENDPOINT, SURREAL_WAIT_ATTEMPTS]
+          description: Wait until SurrealDB accepts connections
+      interactive: ["-l"]
+
+  # A database serves clients on the host — your application, or a GUI such
+  # as Surrealist — after the last session closes, until `sbx stop`. Optional:
+  # where a runtime cannot keep it running, the sandbox auto-stops as usual.
+  - type: com.docker.sandbox/long-running@1
+    optional: true
+
+  - type: com.docker.sandbox/port@1
+    config: {name: surrealdb, container: 8000, transport: tcp}
+
+  # Persists data when SURREAL_STORAGE=rocksdb; unused under the memory default.
+  - type: com.docker.sandbox/volume@1
+    config: {path: /home/agent/.surrealdb, size: 5g}
